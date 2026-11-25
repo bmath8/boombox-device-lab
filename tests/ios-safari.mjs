@@ -101,7 +101,14 @@ try {
       seen.push({ t, ...st });
       simShot(`hero-${t}s`);
     }
-    log({ device: DEV, step: 'hero', gl, seen, errs: await driver.executeScript('return (window.__errs||[]).slice(0,5)') });
+    // Why the live stage can show nothing: the canvas's own size, then the same screen with the edge mask taken off.
+    const canvas = await driver.executeScript(`const c=document.querySelector('[data-stage] canvas'); if(!c) return null; const r=c.getBoundingClientRect(); const h=c.parentElement; const cs=getComputedStyle(h); return { w: c.width, h: c.height, css: [Math.round(r.width), Math.round(r.height)], holderOpacity: cs.opacity, mask: cs.webkitMaskImage || cs.maskImage, canvasOpacity: getComputedStyle(c).opacity, display: getComputedStyle(c).display }`);
+    await driver.executeScript(`const c=document.querySelector('[data-stage] canvas'); if(c){ const h=c.parentElement; h.style.webkitMaskImage='none'; h.style.maskImage='none'; }`);
+    await sleep(2500); simShot('hero-nomask');
+    // Nudge a redraw (a resize) in case the first frames were drawn before the canvas was on screen.
+    await driver.executeScript(`window.dispatchEvent(new Event('resize')); const s=document.querySelector('[data-stage]'); if(s){ s.style.height=(s.getBoundingClientRect().height+1)+'px'; }`);
+    await sleep(2500); simShot('hero-resized');
+    log({ device: DEV, step: 'hero', gl, seen, canvas, errs: await driver.executeScript('return (window.__errs||[]).slice(0,5)') });
   });
   writeOut();
 
