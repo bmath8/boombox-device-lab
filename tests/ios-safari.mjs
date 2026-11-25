@@ -17,12 +17,54 @@ const SIGNED = (process.env.PAGES || '/,/stations,/shows,/library,/library/open,
 
 const caps = { browserName: 'safari', platformName: 'iOS', 'safari:useSimulator': true, 'safari:deviceType': KIND };
 if (process.env.UDID) caps['safari:deviceUDID'] = process.env.UDID;
-const driver = await new Builder().usingServer('http://localhost:4444').withCapabilities(caps).build();
-await driver.manage().setTimeouts({ pageLoad: 60000, script: 30000 });
 const results = [];
 const log = (o) => { results.push(o); console.log(JSON.stringify(o)); };
+const writeOut = () => fs.writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 1));
 
-async function visit(path, tag) {
+// A fresh simulator's Safari is slow to answer safaridriver the first time ("session timed out while
+// connecting to a Safari instance"), and a page that crashes Safari's web process ends the session.
+// So: open Safari first, retry the session, and if one dies mid-pass, start a new one, sign in again
+// and carry on with the next page. Each restart is logged, with the page that preceded it.
+let driver = null;
+let signedIn = false;
+async function newSession(reason) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try { if (driver) await driver.quit(); } catch {}
+    driver = null;
+    try { execFileSync('xcrun', ['simctl', 'terminate', process.env.UDID ?? 'booted', 'com.apple.mobilesafari'], { stdio: 'ignore' }); } catch {}
+    try { execFileSync('xcrun', ['simctl', 'launch', process.env.UDID ?? 'booted', 'com.apple.mobilesafari'], { stdio: 'ignore' }); } catch {}
+    await sleep(8000 + attempt * 4000);
+    try {
+      driver = await new Builder().usingServer('http://localhost:4444').withCapabilities(caps).build();
+      await driver.manage().setTimeouts({ pageLoad: 60000, script: 30000 });
+      log({ device: DEV, step: 'session', reason, attempt, ok: true });
+      if (signedIn) await signIn();
+      return;
+    } catch (e) {
+      log({ device: DEV, step: 'session', reason, attempt, ok: false, error: String(e.message).split('\n')[0] });
+    }
+  }
+  throw new Error('could not start a Safari session after 5 tries');
+}
+const deadSession = (e) => /session|NoSuchWindow|disconnected|ECONNREFUSED|socket hang up|not connected/i.test(String(e && e.message));
+async function signIn() {
+  await driver.get(BASE + '/login'); await sleep(2000);
+  const status = await driver.executeAsyncScript(`const done = arguments[arguments.length-1]; fetch('/api/auth/demo',{method:'POST'}).then(r=>done(r.status)).catch(e=>done(String(e)))`);
+  log({ device: DEV, step: 'demo sign-in', status });
+  signedIn = true;
+}
+// Run a step; if the session died under it, record that, start a new session and try the step once more.
+async function step(name, fn) {
+  try { return await fn(); } catch (e) {
+    if (!deadSession(e)) { log({ device: DEV, step: name, error: String(e.message).split('\n')[0] }); return null; }
+    log({ device: DEV, step: name, sessionDied: true, error: String(e.message).split('\n')[0] });
+    await newSession(`died during ${name}`);
+    try { return await fn(); } catch (e2) { log({ device: DEV, step: name, retryError: String(e2.message).split('\n')[0] }); return null; }
+  }
+}
+await newSession('start');
+
+async function visit(path, tag, retried = false) {
   const t0 = Date.now();
   try {
     await driver.get(BASE + path);
@@ -33,18 +75,21 @@ async function visit(path, tag) {
     fs.writeFileSync(`${OUT}/${name}.web.png`, await driver.takeScreenshot(), 'base64');
     simShot(name); // the whole simulator screen: Safari's own bars, the notch and the home indicator
     log({ device: DEV, tag, path, ms: Date.now() - t0, ...r, errs });
-  } catch (e) { log({ device: DEV, tag, path, error: String(e.message).split('\n')[0] }); }
+  } catch (e) {
+    log({ device: DEV, tag, path, error: String(e.message).split('\n')[0] });
+    if (deadSession(e) && !retried) { await newSession(`died on ${path}`); return visit(path, tag, true); }
+  }
+  writeOut();
 }
 
 try {
   for (const p of PUBLIC) await visit(p, 'out');
   // Sign in with the demo account (same as the login page's demo button).
-  await driver.get(BASE + '/login'); await sleep(2000);
-  const signed = await driver.executeAsyncScript(`const done = arguments[arguments.length-1]; fetch('/api/auth/demo',{method:'POST'}).then(r=>done(r.status)).catch(e=>done(String(e)))`);
-  log({ device: DEV, step: 'demo sign-in', status: signed });
+  await step('sign-in', signIn);
   for (const p of SIGNED) await visit(p, 'in');
 
   // The phone check page: what this real Safari reports it can do.
+  await step('phone check', async () => {
   await driver.get(BASE + '/check'); await sleep(2500);
   await driver.executeScript(`[...document.querySelectorAll('button')].find(b=>/Check this phone/.test(b.textContent))?.click()`);
   await sleep(8000);
@@ -52,8 +97,11 @@ try {
     rows: await driver.executeScript(`return [...document.querySelectorAll('[data-check]')].map(e=>({check:e.dataset.check,status:e.dataset.status,text:e.innerText.slice(0,160)}))`),
     text: await driver.executeScript(`return document.querySelector('main')?.innerText.slice(0,3000)`) });
   simShot('check-results');
+  });
+  writeOut();
 
   // Tune in on the radio: real audio, Media Session and the service worker.
+  await step('radio and lock', async () => {
   await driver.get(BASE + '/'); await sleep(4000);
   const tuned = await driver.executeScript(`const b=[...document.querySelectorAll('button')].find(b=>/^\\s*Tune in\\s*$/.test(b.textContent)); if(b){b.click(); return true} return false`);
   await sleep(12000);
@@ -83,7 +131,8 @@ try {
   let afterLock = null;
   try { afterLock = await driver.executeScript(`return [...document.querySelectorAll('audio,video')].map(m=>({paused:m.paused,t:m.currentTime}))`); } catch (e) { afterLock = String(e.message).split('\n')[0]; }
   log({ device: DEV, step: 'locked', before, afterLock });
+  });
 } finally {
-  fs.writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 1));
-  await driver.quit();
+  writeOut();
+  try { await driver?.quit(); } catch {}
 }
