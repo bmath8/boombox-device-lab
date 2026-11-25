@@ -90,6 +90,21 @@ try {
   await step('sign-in', signIn);
   for (const p of SIGNED) await visit(p, 'in');
 
+  // The radio's 3D turntable: which stage it picked, and what the screen shows as it settles.
+  await step('hero', async () => {
+    await driver.get(BASE + '/');
+    const gl = await driver.executeScript(`const c=document.createElement('canvas'); const g=c.getContext('webgl2')||c.getContext('webgl'); if(!g) return null; const d=g.getExtension('WEBGL_debug_renderer_info'); return { v: g.getParameter(g.VERSION), r: d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER), gpu: 'gpu' in navigator }`);
+    const seen = [];
+    for (const t of [2, 5, 10, 16]) {
+      await sleep((t - (seen.length ? seen[seen.length - 1].t : 0)) * 1000);
+      const st = await driver.executeScript(`const s=document.querySelector('[data-stage]'); if(!s) return null; const r=s.getBoundingClientRect(); const deck=s.firstElementChild; const imgs=[...s.querySelectorAll('img')].slice(0,2).map(i=>i.complete&&i.naturalWidth>0); return { stage: s.dataset.stage, backend: s.dataset.stageBackend, mode: s.dataset.stageMode, slow: s.dataset.stageSlow, box: [Math.round(r.width), Math.round(r.height)], deckOpacity: deck && getComputedStyle(deck).opacity, imgs, canvas: !!s.querySelector('canvas') }`);
+      seen.push({ t, ...st });
+      simShot(`hero-${t}s`);
+    }
+    log({ device: DEV, step: 'hero', gl, seen, errs: await driver.executeScript('return (window.__errs||[]).slice(0,5)') });
+  });
+  writeOut();
+
   // The phone check page: what this real Safari reports it can do.
   await step('phone check', async () => {
   await driver.get(BASE + '/check'); await sleep(2500);
