@@ -4,7 +4,7 @@ import { Builder } from 'selenium-webdriver';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-const probe = createRequire(import.meta.url)('./probe.js');
+const probe = createRequire(import.meta.url)('./probe.cjs');
 const BASE = process.env.BASE ?? 'https://boom-box-v-5.vercel.app';
 const KIND = process.env.KIND ?? 'iPhone';
 const DEV = (process.env.DEVICE ?? KIND).replace(/\W+/g, '-');

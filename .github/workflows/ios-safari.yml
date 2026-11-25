@@ -68,15 +68,7 @@ jobs:
           mkdir -p out; xcrun simctl io "$UDID" screenshot "out/$(echo $DEVICE | tr -c 'A-Za-z0-9\n' '-')-locked.png" || true
       - name: Encrypt and store results
         if: always()
-        env: { LAB_KEY: '${{ secrets.LAB_KEY }}' }
-        run: |
-          TAG="$(echo '${{ matrix.device }}' | tr -c 'A-Za-z0-9\n' '-')-${{ github.run_id }}"
-          tar czf r.tgz out
-          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:LAB_KEY -in r.tgz -out "$TAG.tgz.enc"
-          git config user.name lab; git config user.email lab@users.noreply.github.com
-          git fetch origin results || true
-          git checkout -B results origin/results 2>/dev/null || git checkout --orphan results
-          git rm -rfq --cached . >/dev/null 2>&1 || true
-          mkdir -p runs && mv "$TAG.tgz.enc" runs/
-          git add runs/; git commit -qm "results $TAG"
-          for i in 1 2 3 4; do git pull -q --rebase origin results 2>/dev/null; git push -q origin HEAD:results && break; sleep $((i*5)); done
+        env:
+          LAB_KEY: ${{ secrets.LAB_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/store.sh "$(echo '${{ matrix.device }}' | tr -c 'A-Za-z0-9\n' '-')-${{ github.run_id }}-${{ github.run_attempt }}"

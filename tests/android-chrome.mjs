@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
-const probe = createRequire(import.meta.url)('./probe.js');
+const probe = createRequire(import.meta.url)('./probe.cjs');
 const BASE = process.env.BASE ?? 'https://boom-box-v-5.vercel.app';
 const DEV = (process.env.DEVICE ?? 'android').replace(/\W+/g, '-');
 const OUT = `out/${DEV}`; fs.mkdirSync(OUT, { recursive: true });
