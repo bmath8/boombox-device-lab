@@ -14,7 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { device: pixel_7, api: 35, label: 'Pixel 7 Android 15' }
+          - { device: pixel_7, api: 36, label: 'Pixel 7 Android 16' }
+          - { device: pixel_4a, api: 34, label: 'Pixel 4a Android 14' }
           - { device: pixel_tablet, api: 36, label: 'Pixel Tablet Android 16' }
     steps:
       - uses: actions/checkout@v4
