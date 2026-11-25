@@ -1,0 +1,82 @@
+name: iOS and iPadOS Safari (Simulator)
+on:
+  workflow_dispatch:
+    inputs:
+      base: { description: Site to test, default: 'https://boom-box-v-5.vercel.app' }
+      pages: { description: Signed-in pages (comma list, blank = default), default: '' }
+permissions:
+  contents: write
+concurrency: { group: ios, cancel-in-progress: false }
+jobs:
+  safari:
+    runs-on: macos-26
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { device: 'iPhone 17 Pro', kind: iPhone }
+          - { device: 'iPhone 17e', kind: iPhone }
+          - { device: 'iPad Air 11-inch (M4)', kind: iPad }
+          - { device: 'iPad mini (A17 Pro)', kind: iPad }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Pick and boot the simulator
+        run: |
+          xcrun simctl list runtimes
+          xcrun simctl list devices available | sed -n '1,80p'
+          NAME="${{ matrix.device }}"
+          UDID=$(xcrun simctl list devices available -j | jq -r --arg n "$NAME" '[.devices | to_entries[] | select(.key|test("iOS")) | .value[] | select(.name==$n)] | last | .udid // empty')
+          if [ -z "$UDID" ]; then
+            # Fall back to the newest device of this kind.
+            UDID=$(xcrun simctl list devices available -j | jq -r --arg k "${{ matrix.kind }}" '[.devices | to_entries[] | select(.key|test("iOS")) | .value[] | select(.name|startswith($k))] | last | .udid')
+          fi
+          echo "UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          sleep 10
+      - name: Start safaridriver
+        run: |
+          sudo safaridriver --enable
+          safaridriver -p 4444 &
+          sleep 3
+      - name: Run the pass in Mobile Safari
+        env:
+          BASE: ${{ inputs.base }}
+          PAGES: ${{ inputs.pages }}
+          DEVICE: ${{ matrix.device }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          [ -n "$PAGES" ] || unset PAGES
+          xcrun simctl io "$UDID" recordVideo --codec h264 out-video.mp4 &
+          REC=$!
+          node tests/ios-safari.mjs || echo "RUN_FAILED=1" >> $GITHUB_ENV
+          kill -INT $REC; sleep 3
+          mkdir -p out && mv out-video.mp4 "out/$(echo $DEVICE | tr -c 'A-Za-z0-9\n' '-')-video.mp4" || true
+      - name: Lock screen check (Simulator menu, best effort)
+        continue-on-error: true
+        run: |
+          osascript -e 'tell application "Simulator" to activate' -e 'delay 1' -e 'tell application "System Events" to keystroke "l" using command down' || true
+          sleep 4
+          mkdir -p out; xcrun simctl io "$UDID" screenshot "out/$(echo $DEVICE | tr -c 'A-Za-z0-9\n' '-')-locked.png" || true
+      - name: Encrypt and store results
+        if: always()
+        env: { LAB_KEY: '${{ secrets.LAB_KEY }}' }
+        run: |
+          TAG="$(echo '${{ matrix.device }}' | tr -c 'A-Za-z0-9\n' '-')-${{ github.run_id }}"
+          tar czf r.tgz out
+          openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:LAB_KEY -in r.tgz -out "$TAG.tgz.enc"
+          git config user.name lab; git config user.email lab@users.noreply.github.com
+          git fetch origin results || true
+          git checkout -B results origin/results 2>/dev/null || git checkout --orphan results
+          git rm -rfq --cached . >/dev/null 2>&1 || true
+          mkdir -p runs && mv "$TAG.tgz.enc" runs/
+          git add runs/; git commit -qm "results $TAG"
+          for i in 1 2 3 4; do git pull -q --rebase origin results 2>/dev/null; git push -q origin HEAD:results && break; sleep $((i*5)); done
