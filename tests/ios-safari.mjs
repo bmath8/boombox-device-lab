@@ -1,6 +1,6 @@
 // Real Mobile Safari in Apple's iOS / iPadOS Simulator, driven by Apple's safaridriver.
 // Env: BASE (site), DEVICE (simulator name, for labels), KIND (iPhone|iPad), UDID.
-import { Builder } from 'selenium-webdriver';
+import { Builder, By } from 'selenium-webdriver';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -38,6 +38,8 @@ async function newSession(reason) {
       driver = await new Builder().usingServer('http://localhost:4444').withCapabilities(caps).build();
       await driver.manage().setTimeouts({ pageLoad: 60000, script: 30000 });
       log({ device: DEV, step: 'session', reason, attempt, ok: true });
+      // A protected Vercel preview: its share link sets the cookie that lets the rest of the pass in.
+      if (process.env.SHARE) { await driver.get(process.env.SHARE); await sleep(3000); }
       if (signedIn) await signIn();
       return;
     } catch (e) {
@@ -91,7 +93,8 @@ try {
   // The phone check page: what this real Safari reports it can do.
   await step('phone check', async () => {
   await driver.get(BASE + '/check'); await sleep(2500);
-  await driver.executeScript(`[...document.querySelectorAll('button')].find(b=>/Check this phone/.test(b.textContent))?.click()`);
+  // A WebDriver click is a real tap to Safari (a script's .click() is not), so sound may start.
+  await driver.findElement(By.xpath("//button[contains(normalize-space(.),'Check this phone')]")).click();
   await sleep(8000);
   log({ device: DEV, step: 'phone check', heading: await driver.executeScript(`return document.querySelector('h1')?.textContent`),
     rows: await driver.executeScript(`return [...document.querySelectorAll('[data-check]')].map(e=>({check:e.dataset.check,status:e.dataset.status,text:e.innerText.slice(0,160)}))`),
@@ -103,7 +106,11 @@ try {
   // Tune in on the radio: real audio, Media Session and the service worker.
   await step('radio and lock', async () => {
   await driver.get(BASE + '/'); await sleep(4000);
-  const tuned = await driver.executeScript(`const b=[...document.querySelectorAll('button')].find(b=>/^\\s*Tune in\\s*$/.test(b.textContent)); if(b){b.click(); return true} return false`);
+  let tuned = false;
+  for (const label of ['Tune in', 'Tap to start the sound']) {
+    const found = await driver.findElements(By.xpath(`//button[normalize-space(.)='${label}']`));
+    if (found.length) { try { await found[0].click(); tuned = label; break; } catch {} }
+  }
   await sleep(12000);
   simShot('radio-tuned');
   const radio = await driver.executeAsyncScript(`const done = arguments[arguments.length-1];

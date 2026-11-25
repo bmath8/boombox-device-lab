@@ -4,6 +4,7 @@ on:
     inputs:
       base: { description: Site to test, default: 'https://boom-box-v-5.vercel.app' }
       pages: { description: Signed-in pages (comma list, blank = default), default: '' }
+      share: { description: 'Preview share link, encrypted with LAB_KEY (base64), blank for none', default: '' }
 permissions:
   contents: write
 concurrency: { group: ios, cancel-in-progress: false }
@@ -53,8 +54,15 @@ jobs:
           PAGES: ${{ inputs.pages }}
           DEVICE: ${{ matrix.device }}
           KIND: ${{ matrix.kind }}
+          SHARE_ENC: ${{ inputs.share }}
+          LAB_KEY: ${{ secrets.LAB_KEY }}
         run: |
           [ -n "$PAGES" ] || unset PAGES
+          # The preview's share link opens a private site, so it travels encrypted and is masked in the log.
+          if [ -n "$SHARE_ENC" ]; then
+            SHARE=$(echo "$SHARE_ENC" | openssl enc -d -aes-256-cbc -pbkdf2 -a -A -pass env:LAB_KEY)
+            echo "::add-mask::$SHARE"; export SHARE
+          fi
           xcrun simctl io "$UDID" recordVideo --codec h264 out-video.mp4 &
           REC=$!
           node tests/ios-safari.mjs || echo "RUN_FAILED=1" >> $GITHUB_ENV
