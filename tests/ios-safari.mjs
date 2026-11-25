@@ -48,7 +48,9 @@ try {
   await driver.get(BASE + '/check'); await sleep(2500);
   await driver.executeScript(`[...document.querySelectorAll('button')].find(b=>/Check this phone/.test(b.textContent))?.click()`);
   await sleep(8000);
-  log({ device: DEV, step: 'phone check', text: await driver.executeScript(`return document.querySelector('main')?.innerText.slice(0,3000)`) });
+  log({ device: DEV, step: 'phone check', heading: await driver.executeScript(`return document.querySelector('h1')?.textContent`),
+    rows: await driver.executeScript(`return [...document.querySelectorAll('[data-check]')].map(e=>({check:e.dataset.check,status:e.dataset.status,text:e.innerText.slice(0,160)}))`),
+    text: await driver.executeScript(`return document.querySelector('main')?.innerText.slice(0,3000)`) });
   simShot('check-results');
 
   // Tune in on the radio: real audio, Media Session and the service worker.
