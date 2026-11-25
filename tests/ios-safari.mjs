@@ -13,7 +13,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const simShot = (name) => { try { execFileSync('xcrun', ['simctl', 'io', process.env.UDID ?? 'booted', 'screenshot', `${OUT}/${name}.png`], { stdio: 'ignore' }); } catch {} };
 const PUBLIC = ['/', '/login', '/welcome', '/check', '/join/TESTCODE', '/link'];
-const SIGNED = (process.env.PAGES ?? '/,/stations,/shows,/library,/library/open,/playlists,/family,/family/invite,/discover,/listen,/profile,/profile/account,/profile/music,/play,/play/daily,/play/hits,/play/mix,/play/room,/play/timeline,/studio,/jam,/hum,/voice,/videos,/usage,/tv,/tablet,/check').split(',');
+const SIGNED = (process.env.PAGES || '/,/stations,/shows,/library,/library/open,/playlists,/family,/family/invite,/discover,/listen,/profile,/profile/account,/profile/music,/play,/play/daily,/play/hits,/play/mix,/play/room,/play/timeline,/studio,/jam,/hum,/voice,/videos,/usage,/tv,/tablet,/check').split(',');
 
 const caps = { browserName: 'safari', platformName: 'iOS', 'safari:useSimulator': true, 'safari:deviceType': KIND };
 if (process.env.UDID) caps['safari:deviceUDID'] = process.env.UDID;

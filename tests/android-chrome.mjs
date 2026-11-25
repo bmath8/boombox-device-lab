@@ -10,7 +10,7 @@ const OUT = `out/${DEV}`; fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const adbShot = (name) => { try { execSync(`adb exec-out screencap -p > ${OUT}/${name}.png`); } catch {} };
 const PUBLIC = ['/', '/login', '/welcome', '/check', '/join/TESTCODE'];
-const SIGNED = (process.env.PAGES ?? '/,/stations,/shows,/library,/library/open,/playlists,/family,/family/invite,/discover,/listen,/profile,/profile/account,/profile/music,/play,/play/daily,/play/hits,/play/mix,/play/room,/play/timeline,/studio,/jam,/hum,/voice,/videos,/usage,/tv,/check').split(',');
+const SIGNED = (process.env.PAGES || '/,/stations,/shows,/library,/library/open,/playlists,/family,/family/invite,/discover,/listen,/profile,/profile/account,/profile/music,/play,/play/daily,/play/hits,/play/mix,/play/room,/play/timeline,/studio,/jam,/hum,/voice,/videos,/usage,/tv,/check').split(',');
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
 const ctx = browser.contexts()[0];
 const page = ctx.pages()[0] ?? await ctx.newPage();
