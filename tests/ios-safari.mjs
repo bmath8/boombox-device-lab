@@ -12,6 +12,7 @@ const OUT = `out/${DEV}`;
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const simShot = (name) => { try { execFileSync('xcrun', ['simctl', 'io', process.env.UDID ?? 'booted', 'screenshot', `${OUT}/${name}.png`], { stdio: 'ignore' }); } catch {} };
+const spy = `window.__taps=[]; for (const t of ['pointerdown','touchstart','touchend','click']) document.addEventListener(t, (e) => window.__taps.push([t, e.target && e.target.tagName, e.isTrusted]), true);`;
 const PUBLIC = ['/', '/login', '/welcome', '/check', '/join/TESTCODE', '/link'];
 const SIGNED = (process.env.PAGES || '/,/stations,/shows,/library,/library/open,/playlists,/family,/family/invite,/discover,/listen,/profile,/profile/account,/profile/music,/play,/play/daily,/play/hits,/play/mix,/play/room,/play/timeline,/studio,/jam,/hum,/voice,/videos,/usage,/tv,/tablet,/check').split(',');
 
@@ -116,7 +117,10 @@ try {
   await step('phone check', async () => {
   await driver.get(BASE + '/check'); await sleep(2500);
   // A WebDriver click is a real tap to Safari (a script's .click() is not), so sound may start.
+  await driver.executeScript(spy);
   await driver.findElement(By.xpath("//button[contains(normalize-space(.),'Check this phone')]")).click();
+  await sleep(1000);
+  log({ device: DEV, step: 'check taps', taps: await driver.executeScript('return window.__taps') });
   await sleep(8000);
   log({ device: DEV, step: 'phone check', heading: await driver.executeScript(`return document.querySelector('h1')?.textContent`),
     rows: await driver.executeScript(`return [...document.querySelectorAll('[data-check]')].map(e=>({check:e.dataset.check,status:e.dataset.status,text:e.innerText.slice(0,160)}))`),
@@ -128,6 +132,7 @@ try {
   // Tune in on the radio: real audio, Media Session and the service worker.
   await step('radio and lock', async () => {
   await driver.get(BASE + '/'); await sleep(4000);
+  await driver.executeScript(spy);
   let tuned = false;
   for (const label of ['Tune in', 'Tap to start the sound']) {
     const found = await driver.findElements(By.xpath(`//button[normalize-space(.)='${label}']`));
@@ -146,7 +151,7 @@ try {
     })().catch(e => done({ err: String(e) }));`);
   await sleep(5000);
   const later = await driver.executeScript(`return [...document.querySelectorAll('audio,video')].map(m=>({paused:m.paused,t:m.currentTime}))`);
-  log({ device: DEV, step: 'radio', tuned, ...radio, fiveSecondsLater: later });
+  log({ device: DEV, step: 'radio', tuned, ...radio, fiveSecondsLater: later, taps: await driver.executeScript('return window.__taps') });
 
   // Lock the phone (Simulator's Device > Lock) while the radio plays: does the lock screen show Now Playing,
   // and does the song keep going while locked?
