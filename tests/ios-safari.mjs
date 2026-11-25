@@ -68,6 +68,19 @@ try {
   await sleep(5000);
   const later = await driver.executeScript(`return [...document.querySelectorAll('audio,video')].map(m=>({paused:m.paused,t:m.currentTime}))`);
   log({ device: DEV, step: 'radio', tuned, ...radio, fiveSecondsLater: later });
+
+  // Lock the phone (Simulator's Device > Lock) while the radio plays: does the lock screen show Now Playing,
+  // and does the song keep going while locked?
+  const before = await driver.executeScript(`return [...document.querySelectorAll('audio,video')].map(m=>m.currentTime)`);
+  try { execFileSync('osascript', ['-e', 'tell application "Simulator" to activate', '-e', 'delay 1', '-e', 'tell application "System Events" to keystroke "l" using command down']); } catch (e) { log({ step: 'lock', error: String(e).slice(0, 200) }); }
+  await sleep(6000); simShot('locked-1');
+  try { execFileSync('osascript', ['-e', 'tell application "System Events" to keystroke "l" using command down']); } catch {}
+  await sleep(3000);
+  try { execFileSync('osascript', ['-e', 'tell application "System Events" to keystroke "l" using command down']); } catch {}
+  await sleep(15000); simShot('locked-2');
+  let afterLock = null;
+  try { afterLock = await driver.executeScript(`return [...document.querySelectorAll('audio,video')].map(m=>({paused:m.paused,t:m.currentTime}))`); } catch (e) { afterLock = String(e.message).split('\n')[0]; }
+  log({ device: DEV, step: 'locked', before, afterLock });
 } finally {
   fs.writeFileSync(`${OUT}/results.json`, JSON.stringify(results, null, 1));
   await driver.quit();
