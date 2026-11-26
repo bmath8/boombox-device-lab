@@ -1,0 +1,68 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;background:#2b2119;color:#fff;font:14px system-ui}canvas{display:block;width:100vw;height:60vh}#log{padding:8px;white-space:pre-wrap}</style>
+<script type="importmap">{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.webgpu.js",
+ "three/webgpu":"https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.webgpu.js",
+ "three/tsl":"https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.tsl.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/"}}</script></head>
+<body><canvas id="c"></canvas><div id="log"></div>
+<script type="module">
+// The live stage's pieces one at a time, to see which one leaves Mobile Safari's canvas blank.
+const v = new URLSearchParams(location.search).get('v') || 'basic';
+const log = (s) => { document.getElementById('log').textContent += s + '\n'; (window.__log ||= []).push(s); };
+window.onerror = (m) => log('error ' + m);
+window.addEventListener('unhandledrejection', (e) => log('reject ' + (e.reason && e.reason.message || e.reason)));
+log('variant ' + v);
+try {
+  const canvas = document.getElementById('c');
+  let renderer, THREE;
+  if (v === 'classic') {
+    THREE = await import('https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js');
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  } else {
+    THREE = await import('three/webgpu');
+    renderer = new THREE.WebGPURenderer({ canvas, antialias: false, alpha: false, forceWebGL: v !== 'webgpu' });
+    await renderer.init();
+    log('backend ' + (renderer.backend.isWebGPUBackend ? 'webgpu' : 'webgl2'));
+  }
+  renderer.setPixelRatio(1.5); renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  renderer.toneMapping = THREE.AgXToneMapping;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2b2119);
+  const cam = new THREE.PerspectiveCamera(40, canvas.clientWidth / canvas.clientHeight, 0.1, 50); cam.position.set(0, 1.2, 3); cam.lookAt(0, 0, 0);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1, 0.4, 1), new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.5 }));
+  scene.add(box, new THREE.HemisphereLight(0xffffff, 0x222222, 1.5));
+  const key = new THREE.SpotLight(0xfff3e6, 9, 0, 0.42, 0.95, 2); key.position.set(-0.95, 1.7, 1.25); key.castShadow = true; scene.add(key);
+  if (v === 'hdr' || v === 'mrt' || v === 'gtao' || v === 'full') {
+    const { HDRLoader } = await import('three/addons/loaders/HDRLoader.js');
+    const env = await new HDRLoader().loadAsync('studio.hdr');
+    env.mapping = THREE.EquirectangularReflectionMapping; scene.environment = env; log('hdr ok type=' + env.type);
+  }
+  renderer.shadowMap.enabled = true;
+  let draw = () => renderer.render(scene, cam);
+  if (v === 'mrt' || v === 'gtao' || v === 'full') {
+    const T = await import('three/tsl');
+    const pipe = new THREE.RenderPipeline(renderer);
+    const sp = T.pass(scene, cam);
+    sp.setMRT(T.mrt({ output: T.output, diffuseColor: T.diffuseColor, normal: T.packNormalToRGB(T.normalView), velocity: T.velocity }));
+    sp.getTexture('diffuseColor').type = THREE.UnsignedByteType; sp.getTexture('normal').type = THREE.UnsignedByteType;
+    const beauty = sp.getTextureNode('output');
+    let colour = beauty;
+    if (v !== 'mrt') {
+      const { ao } = await import('three/addons/tsl/display/GTAONode.js');
+      const depth = sp.getTextureNode('depth'); const nt = sp.getTextureNode('normal');
+      const normal = T.sample((uv) => T.unpackRGBToNormal(nt.sample(uv)));
+      const occ = ao(depth, normal, cam); occ.radius.value = 0.12;
+      colour = T.vec4(beauty.rgb.mul(occ.getTextureNode().r), beauty.a);
+      if (v === 'full') { const { traa } = await import('three/addons/tsl/display/TRAANode.js'); colour = traa(colour, depth, sp.getTextureNode('velocity'), cam); }
+    }
+    pipe.outputNode = colour; draw = () => pipe.render();
+  }
+  const gl = canvas.getContext && renderer.backend && renderer.backend.gl;
+  if (gl) log('float ext: cbf=' + !!gl.getExtension('EXT_color_buffer_float') + ' cbhf=' + !!gl.getExtension('EXT_color_buffer_half_float') + ' ofl=' + !!gl.getExtension('OES_texture_float_linear'));
+  let n = 0;
+  const loop = () => { box.rotation.y += 0.01; draw(); n++;
+    if (n === 30) { const c2 = document.createElement('canvas'); c2.width = 40; c2.height = 40; const x = c2.getContext('2d'); x.drawImage(canvas, 0, 0, 40, 40); const d = x.getImageData(0, 0, 40, 40).data; let bright = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i+1] + d[i+2] > 300) bright++; log('frame30 bright pixels ' + bright + ' of 1600; centre ' + Array.from(x.getImageData(20, 20, 1, 1).data).join(',')); }
+    requestAnimationFrame(loop); };
+  loop();
+} catch (e) { log('failed ' + (e && e.message || e)); }
+</script></body></html>

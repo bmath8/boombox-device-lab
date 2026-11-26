@@ -1,0 +1,38 @@
+name: iOS 3D stage check (Simulator)
+on: workflow_dispatch
+permissions:
+  contents: write
+concurrency: { group: ios, cancel-in-progress: false }
+jobs:
+  gl:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Boot the simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key|test("iOS")) | .value[] | select(.name=="iPhone 17 Pro")] | last | .udid')
+          echo "UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          sleep 10
+      - name: Serve the test page and start safaridriver
+        run: |
+          curl -sSfL -o tests/gl/studio.hdr https://boom-box-v-5.vercel.app/tt1/live/studio.hdr
+          (cd tests/gl && python3 -m http.server 8000 >/dev/null 2>&1 &)
+          sudo safaridriver --enable
+          safaridriver -p 4444 &
+          sleep 3
+      - name: Run each variant
+        env: { DEVICE: 'iPhone 17 Pro', KIND: iPhone }
+        run: node tests/ios-gl.mjs
+      - name: Encrypt and store results
+        if: always()
+        env:
+          LAB_KEY: ${{ secrets.LAB_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/store.sh "gl-${{ github.run_id }}-${{ github.run_attempt }}"
