@@ -4,6 +4,8 @@ adb root || true; sleep 3
 adb shell pm list packages | grep -i chrome
 # Skip Chrome's first-run screens and allow the DevTools socket.
 adb shell "echo '_ --disable-fre --no-default-browser-check --no-first-run --autoplay-policy=user-gesture-required' > /data/local/tmp/chrome-command-line"
+# Chrome asks for notifications on first run and its sheet covers every screenshot: grant it up front.
+adb shell pm grant com.android.chrome android.permission.POST_NOTIFICATIONS || true
 adb shell am set-debug-app --persistent com.android.chrome || true
 adb shell am start -n com.android.chrome/com.google.android.apps.chrome.Main -d "about:blank"
 sleep 15
@@ -12,6 +14,10 @@ for i in $(seq 1 12); do
   [ -n "$SOCK" ] && adb forward tcp:9222 localabstract:$SOCK && curl -sf http://127.0.0.1:9222/json/version && break
   echo "waiting for Chrome's DevTools socket ($i)"; adb shell input keyevent 66; adb shell am start -a android.intent.action.VIEW -d "https://example.com" com.android.chrome >/dev/null; sleep 10
 done
+# If the sheet still shows, tap "No thanks".
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
+B=$(adb shell cat /sdcard/ui.xml 2>/dev/null | tr '>' '\n' | grep -i 'text="No thanks"' | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | head -1 | grep -o '[0-9]*' | tr '\n' ' ')
+if [ -n "$B" ]; then set -- $B; adb shell input tap $(( ($1+$3)/2 )) $(( ($2+$4)/2 )); sleep 2; fi
 adb exec-out screencap -p > /tmp/chrome-start.png; mkdir -p out; cp /tmp/chrome-start.png out/ || true
 adb shell screenrecord --time-limit 170 /sdcard/run.mp4 &
 node tests/android-chrome.mjs

@@ -20,6 +20,12 @@ async function visit(path, tag) {
   errs.length = 0; const t0 = Date.now();
   try {
     await page.goto(BASE + path, { waitUntil: 'load', timeout: 60000 }); await sleep(3000);
+    // The demo account is shared: if another test signed it out everywhere, sign in again and retry once.
+    if (tag === 'in' && new URL(page.url()).pathname === '/login') {
+      const st = await page.evaluate(() => fetch('/api/auth/demo', { method: 'POST' }).then((r) => r.status));
+      log({ device: DEV, step: 'signed out mid-run, signed in again', path, status: st });
+      await page.goto(BASE + path, { waitUntil: 'load', timeout: 60000 }); await sleep(3000);
+    }
     const r = await page.evaluate(`(${probe.toString()})()`);
     const name = `${tag}${path.replace(/\//g, '_') || '_root'}`;
     adbShot(name);
